@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Polygon Live DEX Prices</title>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    body {
+      background-color: #08142e;
+      color: #ffffff;
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+    input, button {
+      padding: 10px;
+      margin: 10px 0;
+      width: 100%;
+      max-width: 400px;
+      font-size: 1em;
+    }
+    table {
+      margin-top: 20px;
+      width: 100%;
+      border-collapse: collapse;
+      background-color: #0c203f;
+    }
+    th, td {
+      border: 1px solid #155;
+      padding: 8px;
+      text-align: center;
+    }
+    th {
+      background-color: #123;
+    }
+    tr.best td {
+      background-color: #004d00;
+    }
+    tr.worst td {
+      background-color: #4d0000;
+    }
+    #wallet {
+      margin-top: 10px;
+      color: #7FDBFF;
+    }
+  </style>
+</head>
+<body>
+  <h2>🧠 Polygon Live DEX Price Viewer</h2>
+  <button onclick="connect()">🔌 Connect Wallet</button>
+  <div id="wallet">Not connected</div>
+
+  <input id="tokenAddress" placeholder="Enter ERC20 Token Address" />
+  <button onclick="fetchPrices()">Fetch Prices</button>
+
+  <table>
+    <thead>
+      <tr>
+        <th>DEX</th>
+        <th>Token per $1 USDC</th>
+      </tr>
+    </thead>
+    <tbody id="priceTable"></tbody>
+  </table>
+
+  <script>
+    const USDC = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
+    const USDC_DECIMALS = 6;
+
+    const DEX_ROUTERS = [
+      { name: "QuickSwap", address: "0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff" },
+      { name: "SushiSwap", address: "0x1b02da8cb0d097eb8d57a175b88c7d8b47997506" },
+      { name: "ApeSwap", address: "0xC0788A3aD43d79aa53B09c2EaCc313A787d1d607" },
+      { name: "KyberSwap", address: "0x546C79662E028B661dFB4767664d0273184E4dD1" },
+      { name: "JetSwap", address: "0x312Bc7eAAF93f1C60Dc5AfC115FcCDE161055FB0" }
+      { name: "Dfyn", address: "0xA102072A4C07F06EC3B4900FDC4C7B80b6c57429" },
+  { name: "WaultSwap", address: "0x3a1D87f206D12415f5b0A33E786967680AAb4f6d" },
+  { name: "Firebird", address: "0x8E6f17d4c52C7fE5e43B3fF395A7fE45d78a7A63" },
+  { name: "Polycat", address: "0x94930a328162957FF1dd48900aF67B5439336cBD" },
+  { name: "ComethSwap", address: "0x93b08fA4B3C34D248fDd008fD371A2A1dFD7E3A7" },
+  { name: "Elk Finance", address: "0xF38Bb8D6dAbf3fEcfb6eCedA3E1Fd7c0c2c8f055" },
+  { name: "CafeSwap", address: "0x9055682E58C74fc8DdBFC55Ad2428aB1F96098Fc" }
+
+
+    ];
+
+    let provider, signer, userAddress;
+
+    const routerABI = [
+      "function getAmountsOut(uint amountIn, address[] memory path) view returns (uint[] memory)"
+    ];
+
+    async function connect() {
+      if (!window.ethereum) return alert("Please install MetaMask.");
+      await window.ethereum.request({ method: "eth_requestAccounts" });
+      provider = new ethers.providers.Web3Provider(window.ethereum);
+      signer = provider.getSigner();
+      userAddress = await signer.getAddress();
+      document.getElementById("wallet").innerText = `Connected: ${userAddress}`;
+    }
+
+    async function getTokenDecimals(tokenAddress) {
+      const abi = ["function decimals() view returns (uint8)"];
+      const token = new ethers.Contract(tokenAddress, abi, provider);
+      return await token.decimals();
+    }
+
+    async function fetchPrice(routerAddr, tokenAddr) {
+      try {
+        const router = new ethers.Contract(routerAddr, routerABI, provider);
+        const path = [USDC, tokenAddr];
+        const amountIn = ethers.utils.parseUnits("1", USDC_DECIMALS);
+        const out = await router.getAmountsOut(amountIn, path);
+        const tokenDecimals = await getTokenDecimals(tokenAddr);
+        return parseFloat(ethers.utils.formatUnits(out[1], tokenDecimals));
+      } catch (e) {
+        return null;
+      }
+    }
+
+    async function fetchPrices() {
+      const tokenAddr = document.getElementById("tokenAddress").value.trim();
+      if (!ethers.utils.isAddress(tokenAddr)) {
+        alert("Invalid token address.");
+        return;
+      }
+
+      const results = [];
+      for (const dex of DEX_ROUTERS) {
+        const price = await fetchPrice(dex.address, tokenAddr);
+        if (price) results.push({ ...dex, price });
+      }
+
+      const min = Math.min(...results.map(r => r.price));
+      const max = Math.max(...results.map(r => r.price));
+
+      const tbody = document.getElementById("priceTable");
+      tbody.innerHTML = "";
+      for (const r of results) {
+        const rowClass = r.price === min ? "best" : (r.price === max ? "worst" : "");
+        tbody.innerHTML += `
+          <tr class="${rowClass}">
+            <td>${r.name}</td>
+            <td>${r.price.toFixed(6)}</td>
+          </tr>`;
+      }
+    }
+
+    // Refresh every 8 seconds
+    setInterval(() => {
+      const token = document.getElementById("tokenAddress").value;
+      if (ethers.utils.isAddress(token)) fetchPrices();
+    }, 8000);
+  </script>
+</body>
+</html>
